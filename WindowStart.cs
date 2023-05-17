@@ -5,7 +5,7 @@ namespace GtkTest
 {
     class WindowStart : Window
     {
-        CancellationTokenSource? CancellationTokenThread { get; set; }
+        private CancellationTokenSource CancellationTokenThread { get; set; } = new CancellationTokenSource();
 
         NpgsqlDataSource? DataSource { get; set; }
 
@@ -97,11 +97,11 @@ namespace GtkTest
             treeView.AppendColumn(new TreeViewColumn("Udt", new CellRendererText(), "text", 2));
         }
 
-        void OnConnect(object? sender, EventArgs args)
+        async void OnConnect(object? sender, EventArgs args)
         {
             string Server = "localhost";
             string UserId = "postgres";
-            string Password = "1";
+            string Password = "postgres";
             int Port = 5432;
             string Database = "storage_and_trade";
 
@@ -109,10 +109,15 @@ namespace GtkTest
 
             DataSource = NpgsqlDataSource.Create(conString);
 
-            OnFill(this, new EventArgs());
+            await FillSchemaTree().ConfigureAwait(false);
         }
 
-        void OnFill(object? sender, EventArgs args)
+        async void OnFill(object? sender, EventArgs args)
+        {
+            await FillSchemaTree().ConfigureAwait(false);
+        }
+
+        private async Task FillSchemaTree()
         {
             if (DataSource != null)
             {
@@ -121,7 +126,8 @@ namespace GtkTest
                 PostgreSQl postgreSQl = new PostgreSQl() { DataSource = DataSource };
 
                 //Структура бази даних
-                ConfigurationInformationSchema informationSchema = postgreSQl.SelectInformationSchema();
+                ConfigurationInformationSchema informationSchema =
+                    await postgreSQl.SelectInformationSchema(CancellationToken.None);
 
                 TreeIter rootIter = Store.AppendValues(" Схема ");
 
@@ -148,16 +154,15 @@ namespace GtkTest
             }
         }
 
-        void OnOkClick(object? sender, EventArgs args)
+        async void OnOkClick(object? sender, EventArgs args)
         {
+            await MaintenanceTable(CancellationTokenThread.Token).ConfigureAwait(false);
             CancellationTokenThread = new CancellationTokenSource();
-            Thread thread = new Thread(new ThreadStart(MaintenanceTable));
-            thread.Start();
         }
 
         void OnStopClick(object? sender, EventArgs args)
         {
-            CancellationTokenThread?.Cancel();
+            CancellationTokenThread.Cancel();
         }
 
         void ButtonSensitive(bool sensitive)
@@ -198,7 +203,7 @@ namespace GtkTest
             );
         }
 
-        void MaintenanceTable()
+        async Task MaintenanceTable(CancellationToken token)
         {
             if (DataSource != null)
             {
@@ -208,7 +213,7 @@ namespace GtkTest
                 ApendLine("Структура бази даних");
 
                 PostgreSQl postgreSQl = new PostgreSQl() { DataSource = DataSource };
-                ConfigurationInformationSchema informationSchema = postgreSQl.SelectInformationSchema();
+                ConfigurationInformationSchema informationSchema = await postgreSQl.SelectInformationSchema(token);
 
                 ApendLine("Таблиць: " + informationSchema.Tables.Count);
                 ApendLine("");
@@ -217,7 +222,7 @@ namespace GtkTest
 
                 foreach (ConfigurationInformationSchema_Table table in informationSchema.Tables.Values)
                 {
-                    if (CancellationTokenThread!.IsCancellationRequested)
+                    if (token.IsCancellationRequested)
                         break;
 
                     ApendLine($" --> {table.TableName}");
@@ -225,7 +230,7 @@ namespace GtkTest
                     string query = $@"VACUUM FULL {table.TableName};";
 
                     NpgsqlCommand command = DataSource.CreateCommand(query);
-                    command.ExecuteNonQuery();
+                    await command.ExecuteNonQueryAsync();
                 }
 
                 ApendLine("");
