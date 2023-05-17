@@ -53,7 +53,7 @@ namespace GtkTest
                 return false;
         }
 
-        public ConfigurationInformationSchema SelectInformationSchema()
+        public async Task<ConfigurationInformationSchema> SelectInformationSchema(CancellationToken token)
         {
             ConfigurationInformationSchema informationSchema = new ConfigurationInformationSchema();
 
@@ -69,8 +69,8 @@ namespace GtkTest
 
                 NpgsqlCommand command = DataSource.CreateCommand(query);
 
-                NpgsqlDataReader reader = command.ExecuteReader();
-                while (reader.Read())
+                NpgsqlDataReader reader = await command.ExecuteReaderAsync(token);
+                while (await reader.ReadAsync(token))
                 {
                     informationSchema.Append(
                         reader["table_name"].ToString()?.ToLower() ?? "",
@@ -78,7 +78,7 @@ namespace GtkTest
                         reader["data_type"].ToString() ?? "",
                         reader["udt_name"].ToString() ?? "");
                 }
-                reader.Close();
+                await reader.CloseAsync();
 
                 //
                 // Індекси
@@ -87,14 +87,14 @@ namespace GtkTest
                 query = "SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public'";
 
                 command = DataSource.CreateCommand(query);
-                reader = command.ExecuteReader();
-                while (reader.Read())
+                reader = await command.ExecuteReaderAsync(token);
+                while (await reader.ReadAsync(token))
                 {
                     informationSchema.AppendIndex(
                         reader["tablename"].ToString()?.ToLower() ?? "",
                         reader["indexname"].ToString()?.ToLower() ?? "");
                 }
-                reader.Close();
+                await reader.CloseAsync();
             }
 
             return informationSchema;
